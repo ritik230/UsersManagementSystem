@@ -146,8 +146,11 @@ Run with the MySQL profile:
 
 * `GET /api/users/me`
 
-### Admin
+### Admin Credential
+*  `Default Admin User - admin@example.com`
+*  `password-Admin@123`
 
+### Admin API's
 * `POST /api/roles`
 * `POST /api/users/{id}/roles`
 * `GET /api/admin/stats`

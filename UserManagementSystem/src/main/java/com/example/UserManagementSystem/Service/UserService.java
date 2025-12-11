@@ -7,6 +7,8 @@ import com.example.UserManagementSystem.Repository.RoleRepository;
 import com.example.UserManagementSystem.Repository.UserRepository;
 import com.example.UserManagementSystem.Security.JwtService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -134,7 +136,7 @@ public class UserService {
                 .user(userResponse)
                 .build();
     }
-
+    @Cacheable(value = "users", key = "#email")
     public UserResponse getByEmail(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
