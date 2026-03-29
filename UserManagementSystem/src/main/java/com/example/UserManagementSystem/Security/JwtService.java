@@ -23,21 +23,36 @@ public class JwtService {
     @Value("${jwt.expiration-ms}")
     private long expirationMs;
 
+    @Value("${jwt.refresh-expiration-ms}")
+    private long refreshExpirationMs;
+
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(UserDetails userDetails) {
+    public String generateAccessToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", userDetails.getAuthorities().stream()
                 .map(Object::toString)
                 .toList());
+        claims.put("token_type", "ACCESS");
 
+        return buildToken(userDetails, claims, expirationMs);
+    }
+
+    public String generateRefreshToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("token_type", "REFRESH");
+        return buildToken(userDetails, claims, refreshExpirationMs);
+    }
+
+    private String buildToken(UserDetails userDetails, Map<String, Object> claims, long tokenExpirationMs) {
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(userDetails.getUsername()) // email
+                .setId(UUID.randomUUID().toString())
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirationMs))
+                .setExpiration(new Date(System.currentTimeMillis() + tokenExpirationMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -57,12 +72,37 @@ public class JwtService {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+        return username.equals(userDetails.getUsername())
+                && isAccessToken(token)
+                && !isTokenExpired(token);
+    }
+
+    public boolean isRefreshTokenValid(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return username.equals(userDetails.getUsername())
+                && isRefreshToken(token)
+                && !isTokenExpired(token);
     }
 
     private boolean isTokenExpired(String token) {
         Date exp = extractClaim(token, Claims::getExpiration);
         return exp.before(new Date());
+    }
+
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public String extractTokenId(String token) {
+        return extractClaim(token, Claims::getId);
+    }
+
+    public boolean isAccessToken(String token) {
+        return "ACCESS".equals(extractClaim(token, claims -> claims.get("token_type", String.class)));
+    }
+
+    public boolean isRefreshToken(String token) {
+        return "REFRESH".equals(extractClaim(token, claims -> claims.get("token_type", String.class)));
     }
 }
 

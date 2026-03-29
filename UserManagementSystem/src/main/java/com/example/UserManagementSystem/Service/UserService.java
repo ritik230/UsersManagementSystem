@@ -1,19 +1,22 @@
 package com.example.UserManagementSystem.Service;
 
 import com.example.UserManagementSystem.DTO.*;
+import com.example.UserManagementSystem.Entity.TokenType;
 import com.example.UserManagementSystem.Entity.Role;
 import com.example.UserManagementSystem.Entity.User;
 import com.example.UserManagementSystem.Repository.RoleRepository;
 import com.example.UserManagementSystem.Repository.UserRepository;
+
+
 import com.example.UserManagementSystem.Security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +32,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final UserEventPublisher userEventPublisher;
+    private final AuthTokenService authTokenService;
 
     public UserResponse register(RegisterRequest request) {
 
@@ -84,6 +88,7 @@ public class UserService {
     }
 
 
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         // 1. Find user
         User user = userRepository.findByEmail(request.getEmail())
@@ -95,28 +100,8 @@ public class UserService {
         }
 
         // 3. Build UserDetails
-        UserDetails userDetails = new org.springframework.security.core.userdetails.User(
-                user.getEmail(),
-                user.getPassword(),
-                user.getRoles().stream()
-                        .map(role -> new SimpleGrantedAuthority(role.getName()))
-                        .collect(Collectors.toSet())
-        );
-
-        // 4. Generate token
-        String token = jwtService.generateToken(userDetails);
-
-        // 5. Build UserResponse
-        UserResponse userResponse = UserResponse.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .roles(
-                        user.getRoles().stream()
-                                .map(Role::getName)
-                                .collect(Collectors.toSet())
-                )
-                .build();
+        UserDetails userDetails = buildUserDetails(user);
+        authTokenService.revokeAllTokens(user);
         userEventPublisher.publishUserEvent(
                 UserActivityEvent.builder()
                         .userId(user.getId())
@@ -130,11 +115,37 @@ public class UserService {
                         )
                         .build()
         );
-        // 6. Return AuthResponse
-        return AuthResponse.builder()
-                .token(token)
-                .user(userResponse)
-                .build();
+        return issueTokens(user, userDetails);
+    }
+
+    @Transactional
+    public AuthResponse refreshToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("Refresh token is required");
+        }
+
+        String email = jwtService.extractUsername(refreshToken);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        UserDetails userDetails = buildUserDetails(user);
+        if (!jwtService.isRefreshTokenValid(refreshToken, userDetails)
+                || !authTokenService.isTokenActive(refreshToken, TokenType.REFRESH)) {
+            throw new IllegalArgumentException("Invalid refresh token");
+        }
+
+        authTokenService.revokeAllTokens(user);
+        return issueTokens(user, userDetails);
+    }
+
+    @Transactional
+    public void logout(String accessToken, String refreshToken) {
+        if (accessToken != null && !accessToken.isBlank()) {
+            authTokenService.revokeToken(accessToken);
+        }
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            authTokenService.revokeToken(refreshToken);
+        }
     }
     @Cacheable(value = "users", key = "#email")
     public UserResponse getByEmail(String email) {
@@ -202,6 +213,30 @@ public class UserService {
                                 .map(Role::getName)
                                 .collect(Collectors.toSet())
                 )
+                .build();
+    }
+
+    private UserDetails buildUserDetails(User user) {
+        return new org.springframework.security.core.userdetails.User(
+                user.getEmail(),
+                user.getPassword(),
+                user.getRoles().stream()
+                        .map(role -> new SimpleGrantedAuthority(role.getName()))
+                        .collect(Collectors.toSet())
+        );
+    }
+
+    private AuthResponse issueTokens(User user, UserDetails userDetails) {
+        String accessToken = jwtService.generateAccessToken(userDetails);
+        String refreshToken = jwtService.generateRefreshToken(userDetails);
+
+        authTokenService.saveToken(user, accessToken, TokenType.ACCESS);
+        authTokenService.saveToken(user, refreshToken, TokenType.REFRESH);
+
+        return AuthResponse.builder()
+                .token(accessToken)
+                .refreshToken(refreshToken)
+                .user(mapToUserResponse(user))
                 .build();
     }
 }

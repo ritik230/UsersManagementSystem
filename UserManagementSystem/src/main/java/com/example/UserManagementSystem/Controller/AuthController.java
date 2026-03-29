@@ -2,6 +2,8 @@ package com.example.UserManagementSystem.Controller;
 
 import com.example.UserManagementSystem.DTO.AuthResponse;
 import com.example.UserManagementSystem.DTO.LoginRequest;
+import com.example.UserManagementSystem.DTO.LogoutRequest;
+import com.example.UserManagementSystem.DTO.RefreshTokenRequest;
 import com.example.UserManagementSystem.DTO.RegisterRequest;
 import com.example.UserManagementSystem.DTO.UserResponse;
 import com.example.UserManagementSystem.Service.UserService;
@@ -31,6 +33,18 @@ public class AuthController {
         AuthResponse response = userService.login(request);
         return ResponseEntity.ok(response);
     }
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        AuthResponse response = userService.refreshToken(request.getRefreshToken());
+        return ResponseEntity.ok(response);
+    }
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @RequestHeader(value = "Authorization", required = false) String authorizationHeader,
+            @RequestBody(required = false) LogoutRequest request) {
+        userService.logout(extractBearerToken(authorizationHeader), request == null ? null : request.getRefreshToken());
+        return ResponseEntity.noContent().build();
+    }
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -41,5 +55,11 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
+    private String extractBearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            return null;
+        }
+        return authorizationHeader.substring(7);
+    }
 }
 

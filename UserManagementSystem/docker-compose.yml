@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-
   mysql:
     image: mysql:8.0
     container_name: ums-mysql
@@ -37,12 +36,13 @@ services:
 
   app:
     build: .
-    # OR: image: usermanagementsystem:latest
     container_name: ums-api
     restart: on-failure
     depends_on:
-      - mysql
-      - rabbitmq
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
